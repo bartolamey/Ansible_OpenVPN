@@ -1,0 +1,160 @@
+---
+
+########################################################
+- name: Step 1
+  hosts:  server
+  become: yes
+
+  vars:
+    user_name: user1
+
+  tasks:
+  - name: Create cert
+    shell: source vars; ./build-key --batch {{ user_name }}
+    args:
+      chdir: /etc/openvpn/easy-rsa/
+      executable: /bin/bash
+
+  - name: Copy ca.crt
+    fetch:
+      src:  /etc/openvpn/easy-rsa/keys/ca.crt 
+      dest: /home/ubuntu/{{ user_name }}/ca.crt
+      flat: yes
+
+  - name: Copy ta.key
+    fetch:
+      src:  /etc/openvpn/easy-rsa/keys/ta.key
+      dest: /home/ubuntu/{{ user_name }}/ta.key
+      flat: yes
+
+  - name: Copy {{ user_name }}.crt
+    fetch:
+      src:  /etc/openvpn/easy-rsa/keys/{{ user_name }}.crt
+      dest: /home/ubuntu/{{ user_name }}/{{ user_name }}.crt
+      flat: yes
+
+  - name: Copy {{ user_name }}.key
+    fetch:
+      src:  /etc/openvpn/easy-rsa/keys/{{ user_name }}.key
+      dest: /home/ubuntu/{{ user_name }}/{{ user_name }}.key
+      flat: yes
+
+############################################################
+- name: Step 2
+  hosts: ansible
+  become: yes
+
+  vars:
+    user_name: user1
+    ip_server: 13.58.231.231
+    ip_port: 1194
+ 
+  tasks:  
+
+  - name: Create .conf
+    copy:
+      dest: /home/ubuntu/{{ user_name }}/{{ user_name }}.conf
+      content: |
+        client
+        dev tap0 
+        remote {{ ip_server }} {{ ip_port }} tcp
+
+        resolv-retry infinite
+        nobind
+        persist-key
+        persist-tun
+        ns-cert-type server
+        comp-lzo
+
+        log /var/log/{{ user_name }}.log
+        verb 3
+
+        key-direction 1
+
+  - name: add <key>
+    lineinfile:
+      path: /home/ubuntu/{{ user_name }}/{{ user_name }}.conf
+      line: <key>
+
+  - name: add {{ user_name }}.key 
+    shell:
+      chdir: /home/ubuntu/{{ user_name }}/
+      cmd: cat {{ user_name }}.key >> {{ user_name }}.conf
+
+  - name: add </key>
+    lineinfile:
+      path: /home/ubuntu/{{ user_name }}/{{ user_name }}.conf
+      line: </key>
+
+  - name: add <cert>
+    lineinfile:
+      path: /home/ubuntu/{{ user_name }}/{{ user_name }}.conf
+      line: <cert>
+
+  - name: add {{ user_name }}.key 
+    shell:
+      chdir: /home/ubuntu/{{ user_name }}/
+      cmd: cat {{ user_name }}.crt >> {{ user_name }}.conf
+
+  - name: add </cert>
+    lineinfile:
+      path: /home/ubuntu/{{ user_name }}/{{ user_name }}.conf
+      line: </cert>
+
+  - name: add <ca>
+    lineinfile:
+      path: /home/ubuntu/{{ user_name }}/{{ user_name }}.conf
+      line: <ca>
+
+  - name: add {{ user_name }}.key 
+    shell:
+      chdir: /home/ubuntu/{{ user_name }}/
+      cmd: cat ca.crt >> {{ user_name }}.conf
+
+  - name: add </ca>
+    lineinfile:
+      path: /home/ubuntu/{{ user_name }}/{{ user_name }}.conf
+      line: </ca>
+
+#########################################################
+
+- name: Step 3
+  hosts: client
+  become: yes
+
+  vars:
+    user_name: user1
+ 
+  tasks:
+
+  - name: Install OpenVPN Client
+    apt:
+      name: openvpn
+      state: latest
+      update_cache: yes
+
+  - name: Copy cfg
+    copy:
+      src: /home/ubuntu/{{ user_name }}/{{ user_name }}.conf
+      dest: /etc/openvpn/{{ user_name }}.conf
+
+  - name: Start OpenVPN
+    shell:
+      cmd: systemctl start openvpn@{{ user_name }}
+
+##########################################################
+
+- name: Step 4
+  hosts: ansible
+  become: yes
+ 
+  vars:
+    user_name: user1
+
+  tasks:
+
+  - name: clear
+    file:
+      state: absent
+      path: /home/ubuntu/{{ user_name }}
+
